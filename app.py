@@ -161,6 +161,8 @@ def fetch_brightdata(linkedin_url: str) -> Optional[str]:
                     continue
 
                 if isinstance(data, list) and len(data) > 0:
+                    with st.expander(f"Raw BrightData response for {linkedin_url}"):
+                        st.json(data[0])
                     return format_brightdata_profile(data[0])
                 elif isinstance(data, dict):
                     status = data.get("status", "")
