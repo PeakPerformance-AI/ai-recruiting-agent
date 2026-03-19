@@ -205,26 +205,38 @@ def fetch_brightdata(linkedin_url: str) -> Optional[str]:
 
 def format_brightdata_profile(d: dict) -> str:
     """Format a Bright Data profile into text for Claude."""
+    current_company = (
+        d.get("current_company_name")
+        or (d.get("current_company") or {}).get("name", "")
+    )
+
     parts = [
         f"Name: {d.get('name', d.get('full_name', 'Unknown'))}",
         f"Headline: {d.get('headline', d.get('position', ''))}",
         f"Location: {d.get('location', d.get('city', ''))}",
+        f"Current Company: {current_company}",
         f"Summary: {d.get('summary', d.get('about', ''))}",
         "\nExperience:",
     ]
-    for e in (d.get("experience") or d.get("experiences") or []):
-        title   = e.get("title", e.get("position", ""))
-        company = e.get("company", e.get("company_name", ""))
-        start   = e.get("start_date", "?")
-        end     = e.get("end_date", "present") or "present"
-        parts.append(f"  - {title} at {company} ({start}–{end})")
-        if e.get("description"):
-            parts.append(f"    {e['description'][:300]}")
+
+    experiences = d.get("experience") or d.get("experiences") or []
+    if experiences:
+        for e in experiences:
+            title   = e.get("title", e.get("position", ""))
+            company = e.get("company", e.get("company_name", ""))
+            start   = e.get("start_date", "?")
+            end     = e.get("end_date", "present") or "present"
+            parts.append(f"  - {title} at {company} ({start}–{end})")
+            if e.get("description"):
+                parts.append(f"    {e['description'][:300]}")
+    else:
+        parts.append(f"  (Work history not publicly available. Current employer: {current_company})")
 
     parts.append("\nEducation:")
+    edu_details = d.get("educations_details", "")
     for ed in (d.get("education") or []):
         degree = ed.get("degree", ed.get("degree_name", ""))
-        school = ed.get("school", ed.get("institution", ""))
+        school = ed.get("school", ed.get("institution", edu_details))
         parts.append(f"  - {degree} at {school}")
 
     skills = d.get("skills") or []
