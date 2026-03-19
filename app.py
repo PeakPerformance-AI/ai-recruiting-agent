@@ -210,7 +210,7 @@ def format_brightdata_profile(d: dict) -> str:
         f"Summary: {d.get('summary', d.get('about', ''))}",
         "\nExperience:",
     ]
-    for e in d.get("experience", d.get("experiences", [])):
+    for e in (d.get("experience") or d.get("experiences") or []):
         title   = e.get("title", e.get("position", ""))
         company = e.get("company", e.get("company_name", ""))
         start   = e.get("start_date", "?")
@@ -220,12 +220,12 @@ def format_brightdata_profile(d: dict) -> str:
             parts.append(f"    {e['description'][:300]}")
 
     parts.append("\nEducation:")
-    for ed in d.get("education", []):
+    for ed in (d.get("education") or []):
         degree = ed.get("degree", ed.get("degree_name", ""))
         school = ed.get("school", ed.get("institution", ""))
         parts.append(f"  - {degree} at {school}")
 
-    skills = d.get("skills", [])
+    skills = d.get("skills") or []
     if skills and isinstance(skills[0], dict):
         skill_names = ", ".join(s.get("name", "") for s in skills)
     else:
