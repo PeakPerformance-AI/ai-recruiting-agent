@@ -86,7 +86,7 @@ with st.sidebar:
     st.markdown("### Input Method")
     data_source = st.radio(
         "How will you provide candidates?",
-        ["Paste profile text", "LinkedIn URLs", "Upload CSV from LinkedIn Recruiter"],
+        ["Paste profile text", "LinkedIn URLs", "Upload File (CSV / XLSX / PDF)"],
         index=0,
     )
     st.markdown("---")
