@@ -438,41 +438,65 @@ with col_profiles:
             ]
             st.caption(f"{len(profiles_input)} URL(s) ready")
 
-    # Mode 3: File Upload (CSV, XLSX, PDF)
+    # Mode 3: File Upload (CSV, XLSX, PDF, ZIP)
     else:
-        st.caption("Upload a LinkedIn Recruiter export (CSV or XLSX) or saved LinkedIn profile PDFs.")
-        uploaded_file = st.file_uploader(
-            "Upload file",
-            type=["csv", "xlsx", "xls", "pdf"],
+        st.caption("Upload LinkedIn Recruiter exports (CSV/XLSX), profile PDFs, or a ZIP of any of the above. Select multiple files at once.")
+        uploaded_files = st.file_uploader(
+            "Upload files",
+            type=["csv", "xlsx", "xls", "pdf", "zip"],
+            accept_multiple_files=True,
         )
-        if uploaded_file:
-            name = uploaded_file.name.lower()
-            if name.endswith(".pdf"):
-                texts = extract_text_from_pdf(uploaded_file)
-                if texts:
-                    st.success(f"Found {len(texts)} profile(s) in PDF — will score directly (no BrightData needed)")
-                    profiles_input = [
-                        {"text": t, "label": f"PDF profile {i+1}", "from_pdf": True}
-                        for i, t in enumerate(texts)
-                    ]
-                    with st.expander("Preview extracted text"):
-                        for p in profiles_input[:3]:
-                            st.caption(p["label"])
-                            st.text(p["text"][:300] + "…")
+        if uploaded_files:
+            # Expand any ZIP files into their contents
+            expanded_files = []
+            for uf in uploaded_files:
+                if uf.name.lower().endswith(".zip"):
+                    import zipfile, io as _io
+                    try:
+                        with zipfile.ZipFile(_io.BytesIO(uf.read())) as zf:
+                            for zip_name in zf.namelist():
+                                lower = zip_name.lower()
+                                if any(lower.endswith(ext) for ext in (".pdf", ".csv", ".xlsx", ".xls")):
+                                    data = zf.read(zip_name)
+                                    fake_file = _io.BytesIO(data)
+                                    fake_file.name = zip_name
+                                    expanded_files.append(fake_file)
+                    except Exception as e:
+                        st.warning(f"Could not open ZIP {uf.name}: {e}")
                 else:
-                    st.error("Could not extract text from PDF.")
+                    expanded_files.append(uf)
+
+            # Process each file
+            for f in expanded_files:
+                fname = getattr(f, "name", "").lower()
+                if fname.endswith(".pdf"):
+                    texts = extract_text_from_pdf(f)
+                    for i, t in enumerate(texts):
+                        profiles_input.append({"text": t, "label": f"{f.name} — profile {i+1}", "from_pdf": True})
+                else:
+                    urls = extract_urls_from_csv(f)
+                    for u in urls:
+                        profiles_input.append({"url": u, "label": u})
+
+            # Summary
+            pdf_count = sum(1 for p in profiles_input if p.get("from_pdf"))
+            url_count  = len(profiles_input) - pdf_count
+            if profiles_input:
+                parts = []
+                if pdf_count: parts.append(f"{pdf_count} PDF profile(s)")
+                if url_count:  parts.append(f"{url_count} URL(s) for BrightData")
+                st.success(f"Ready: {', '.join(parts)}")
+                with st.expander("Preview"):
+                    for p in profiles_input[:10]:
+                        if p.get("from_pdf"):
+                            st.caption(f"PDF: {p['label']}")
+                            st.text(p["text"][:200] + "…")
+                        else:
+                            st.caption(f"URL: {p['label']}")
+                    if len(profiles_input) > 10:
+                        st.caption(f"...and {len(profiles_input)-10} more")
             else:
-                urls = extract_urls_from_csv(uploaded_file)
-                if urls:
-                    st.success(f"Found {len(urls)} LinkedIn profiles in your file")
-                    profiles_input = [{"url": u, "label": u} for u in urls]
-                    with st.expander("Preview URLs"):
-                        for u in urls[:10]:
-                            st.caption(u)
-                        if len(urls) > 10:
-                            st.caption(f"...and {len(urls)-10} more")
-                else:
-                    st.error("No LinkedIn URLs found. Make sure this is a LinkedIn Recruiter export.")
+                st.error("No profiles found. Check that your files are LinkedIn Recruiter exports or profile PDFs.")
 
 # ── Run button ────────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -507,21 +531,22 @@ if run:
             st.error("Please provide LinkedIn URLs, upload a CSV/XLSX, or upload a PDF.")
             st.stop()
 
-        # PDF profiles already have text — score directly
-        if all(p.get("from_pdf") for p in profiles_input):
-            profiles_to_score = profiles_input
+        # PDF profiles go straight to scoring; URLs need BrightData
+        pdf_profiles = [p for p in profiles_input if p.get("from_pdf")]
+        url_profiles = [p for p in profiles_input if not p.get("from_pdf")]
 
-        else:
-            # Need BrightData for URL-based profiles
+        profiles_to_score.extend(pdf_profiles)
+
+        if url_profiles:
             if not brightdata_key:
                 st.error("Bright Data API key not configured in secrets.")
                 st.stop()
 
-            total = len(profiles_input)
+            total = len(url_profiles)
             progress_bar = st.progress(0, text=f"Fetching profile 1 of {total}…")
             fetch_status = st.empty()
 
-            for i, p in enumerate(profiles_input):
+            for i, p in enumerate(url_profiles):
                 progress_bar.progress(i / total, text=f"Fetching profile {i+1} of {total}…")
                 fetch_status.info(f"Fetching: {p['url']}")
                 text = fetch_brightdata(p["url"])
