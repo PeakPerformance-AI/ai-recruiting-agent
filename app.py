@@ -387,8 +387,31 @@ col_jd, col_profiles = st.columns([1, 1], gap="large")
 
 with col_jd:
     st.markdown("### 📋 Job Description")
+    jd_file = st.file_uploader(
+        "Upload job description (optional)",
+        type=["pdf", "txt", "docx"],
+        key="jd_upload",
+    )
+    jd_prefill = ""
+    if jd_file:
+        fname = jd_file.name.lower()
+        try:
+            if fname.endswith(".pdf"):
+                import pdfplumber, io as _io
+                with pdfplumber.open(_io.BytesIO(jd_file.read())) as pdf:
+                    jd_prefill = "\n".join(p.extract_text() or "" for p in pdf.pages)
+            elif fname.endswith(".docx"):
+                import docx as _docx, io as _io
+                doc = _docx.Document(_io.BytesIO(jd_file.read()))
+                jd_prefill = "\n".join(para.text for para in doc.paragraphs)
+            else:
+                jd_prefill = jd_file.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            st.warning(f"Could not read file: {e}")
+
     job_description = st.text_area(
         "Job description",
+        value=jd_prefill,
         height=320,
         placeholder="Senior Backend Engineer\n\nRequirements:\n- 5+ years Python\n- Distributed systems experience\n...",
         label_visibility="collapsed",
