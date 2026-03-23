@@ -250,9 +250,14 @@ def format_brightdata_profile(d: dict) -> str:
 
 
 def extract_urls_from_csv(uploaded_file) -> list:
-    """Extract LinkedIn URLs from a LinkedIn Recruiter CSV export."""
+    """Extract LinkedIn URLs from a LinkedIn Recruiter CSV or XLSX export."""
     try:
-        df = pd.read_csv(uploaded_file)
+        name = uploaded_file.name.lower()
+        if name.endswith(".xlsx") or name.endswith(".xls"):
+            df = pd.read_excel(uploaded_file)
+        else:
+            df = pd.read_csv(uploaded_file)
+
         url_col = None
         for col in df.columns:
             if "linkedin" in col.lower() and ("url" in col.lower() or "profile" in col.lower()):
@@ -268,7 +273,31 @@ def extract_urls_from_csv(uploaded_file) -> list:
             return []
         urls = df[url_col].dropna().astype(str).tolist()
         return [u.strip() for u in urls if "linkedin.com/in/" in u]
-    except Exception:
+    except Exception as e:
+        st.warning(f"Could not read file: {e}")
+        return []
+
+
+def extract_text_from_pdf(uploaded_file) -> list:
+    """Extract profile text from a PDF containing one or more LinkedIn profiles.
+    Returns a list of text blocks, one per detected profile (or page)."""
+    import pdfplumber, re
+    try:
+        texts = []
+        with pdfplumber.open(uploaded_file) as pdf:
+            full_text = "\n".join(
+                page.extract_text() or "" for page in pdf.pages
+            )
+        # Try to split on LinkedIn profile boundaries (name + location headers)
+        # If we can't split, treat the whole doc as one profile
+        sections = re.split(r'\n(?=\S.{2,60}\n[A-Z][a-z])', full_text)
+        for section in sections:
+            section = section.strip()
+            if len(section) > 100:  # skip tiny fragments
+                texts.append(section)
+        return texts if texts else [full_text]
+    except Exception as e:
+        st.warning(f"Could not read PDF: {e}")
         return []
 
 
@@ -409,22 +438,41 @@ with col_profiles:
             ]
             st.caption(f"{len(profiles_input)} URL(s) ready")
 
-    # Mode 3: CSV Upload
+    # Mode 3: File Upload (CSV, XLSX, PDF)
     else:
-        st.caption("Export candidates from LinkedIn Recruiter as a CSV, then upload it here.")
-        uploaded_file = st.file_uploader("Upload LinkedIn Recruiter CSV", type=["csv"])
+        st.caption("Upload a LinkedIn Recruiter export (CSV or XLSX) or saved LinkedIn profile PDFs.")
+        uploaded_file = st.file_uploader(
+            "Upload file",
+            type=["csv", "xlsx", "xls", "pdf"],
+        )
         if uploaded_file:
-            urls = extract_urls_from_csv(uploaded_file)
-            if urls:
-                st.success(f"Found {len(urls)} LinkedIn profiles in your CSV")
-                profiles_input = [{"url": u, "label": u} for u in urls]
-                with st.expander("Preview URLs"):
-                    for u in urls[:10]:
-                        st.caption(u)
-                    if len(urls) > 10:
-                        st.caption(f"...and {len(urls)-10} more")
+            name = uploaded_file.name.lower()
+            if name.endswith(".pdf"):
+                texts = extract_text_from_pdf(uploaded_file)
+                if texts:
+                    st.success(f"Found {len(texts)} profile(s) in PDF — will score directly (no BrightData needed)")
+                    profiles_input = [
+                        {"text": t, "label": f"PDF profile {i+1}", "from_pdf": True}
+                        for i, t in enumerate(texts)
+                    ]
+                    with st.expander("Preview extracted text"):
+                        for p in profiles_input[:3]:
+                            st.caption(p["label"])
+                            st.text(p["text"][:300] + "…")
+                else:
+                    st.error("Could not extract text from PDF.")
             else:
-                st.error("No LinkedIn URLs found. Make sure this is a LinkedIn Recruiter export.")
+                urls = extract_urls_from_csv(uploaded_file)
+                if urls:
+                    st.success(f"Found {len(urls)} LinkedIn profiles in your file")
+                    profiles_input = [{"url": u, "label": u} for u in urls]
+                    with st.expander("Preview URLs"):
+                        for u in urls[:10]:
+                            st.caption(u)
+                        if len(urls) > 10:
+                            st.caption(f"...and {len(urls)-10} more")
+                else:
+                    st.error("No LinkedIn URLs found. Make sure this is a LinkedIn Recruiter export.")
 
 # ── Run button ────────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -453,38 +501,45 @@ if run:
             st.error("Paste at least one candidate profile.")
             st.stop()
 
-    # URL modes
+    # File upload / URL modes
     else:
         if not profiles_input:
-            st.error("Please provide LinkedIn URLs or upload a CSV.")
-            st.stop()
-        if not brightdata_key:
-            st.error("Bright Data API key not configured in secrets.")
+            st.error("Please provide LinkedIn URLs, upload a CSV/XLSX, or upload a PDF.")
             st.stop()
 
-        total = len(profiles_input)
-        progress_bar = st.progress(0, text=f"Fetching profile 1 of {total}…")
-        fetch_status = st.empty()
+        # PDF profiles already have text — score directly
+        if all(p.get("from_pdf") for p in profiles_input):
+            profiles_to_score = profiles_input
 
-        for i, p in enumerate(profiles_input):
-            progress_bar.progress(i / total, text=f"Fetching profile {i+1} of {total}…")
-            fetch_status.info(f"Fetching: {p['url']}")
-            text = fetch_brightdata(p["url"])
-            if text:
-                profiles_to_score.append({"text": text, "label": p["url"]})
-                fetch_status.success(f"Fetched profile {i+1} of {total}")
-            else:
-                fetch_status.warning(f"Could not fetch profile {i+1}: {p['url']}")
+        else:
+            # Need BrightData for URL-based profiles
+            if not brightdata_key:
+                st.error("Bright Data API key not configured in secrets.")
+                st.stop()
 
-        progress_bar.progress(1.0, text=f"Done — {len(profiles_to_score)}/{total} profiles fetched.")
-        fetch_status.empty()
+            total = len(profiles_input)
+            progress_bar = st.progress(0, text=f"Fetching profile 1 of {total}…")
+            fetch_status = st.empty()
 
-        if not profiles_to_score:
-            st.error(
-                "No profiles could be fetched. Check the warnings above and verify your "
-                "Bright Data API key and dataset access."
-            )
-            st.stop()
+            for i, p in enumerate(profiles_input):
+                progress_bar.progress(i / total, text=f"Fetching profile {i+1} of {total}…")
+                fetch_status.info(f"Fetching: {p['url']}")
+                text = fetch_brightdata(p["url"])
+                if text:
+                    profiles_to_score.append({"text": text, "label": p["url"]})
+                    fetch_status.success(f"Fetched profile {i+1} of {total}")
+                else:
+                    fetch_status.warning(f"Could not fetch profile {i+1}: {p['url']}")
+
+            progress_bar.progress(1.0, text=f"Done — {len(profiles_to_score)}/{total} profiles fetched.")
+            fetch_status.empty()
+
+            if not profiles_to_score:
+                st.error(
+                    "No profiles could be fetched. Check the warnings above and verify your "
+                    "Bright Data API key and dataset access."
+                )
+                st.stop()
 
     # Score
     with st.spinner(f"Analyzing {len(profiles_to_score)} candidate(s)…"):

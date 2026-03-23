@@ -2,3 +2,5 @@ streamlit
 anthropic
 requests
 pandas
+openpyxl
+pdfplumber
