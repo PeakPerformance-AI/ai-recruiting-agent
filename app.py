@@ -702,6 +702,49 @@ def render_candidates(candidates: list, state_key: str):
                         st.rerun()
 
 
+# ── Back to top button (fixed, always visible) ────────────────────────────────
+import streamlit.components.v1 as _components_top
+_components_top.html("""
+<style>
+  #back-to-top {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 9999;
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: sans-serif;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(99,102,241,0.4);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  #back-to-top.visible {
+    opacity: 1;
+    pointer-events: all;
+  }
+</style>
+<button id="back-to-top" onclick="window.parent.scrollTo({top:0, behavior:'smooth'})">
+  ↑ Top
+</button>
+<script>
+  window.parent.addEventListener('scroll', function() {
+    var btn = document.getElementById('back-to-top');
+    if (window.parent.scrollY > 400) {
+      btn.classList.add('visible');
+    } else {
+      btn.classList.remove('visible');
+    }
+  });
+</script>
+""", height=0)
+
 # ── Load a past search into session state ─────────────────────────────────────
 if "loaded_search" in st.session_state:
     s = st.session_state.pop("loaded_search")
@@ -956,9 +999,8 @@ if run:
     st.markdown("---")
     st.markdown(f"## 📊 Results — {len(candidates)} Candidate(s) Ranked")
     st.caption(f"Skills {w_skills}% · Experience {w_exp}% · Industry {w_industry}% · Trajectory {w_growth}%")
-    render_candidates(candidates, "results")
-
     render_exports(candidates, job_description)
+    render_candidates(candidates, "results")
 
 # ── Show loaded past search (if user clicked one in sidebar) ──────────────────
 elif "loaded_candidates" in st.session_state:
@@ -976,5 +1018,5 @@ elif "loaded_candidates" in st.session_state:
         del st.session_state["loaded_candidates"]
         st.rerun()
 
-    render_candidates(loaded_candidates, "loaded")
     render_exports(loaded_candidates, st.session_state.get("jd_textarea", ""))
+    render_candidates(loaded_candidates, "loaded")
