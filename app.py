@@ -587,6 +587,22 @@ def render_candidates(candidates: list, state_key: str):
                         cur_order[idx], cur_order[idx + 1] = cur_order[idx + 1], cur_order[idx]
                         st.rerun()
 
+            # Copy outreach button
+            outreach = c.get("outreach_message", "")
+            if outreach:
+                escaped = outreach.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+                import streamlit.components.v1 as components
+                components.html(f"""
+                <button onclick="
+                    navigator.clipboard.writeText(`{escaped}`)
+                    .then(() => {{ this.textContent = '✓ Copied!'; setTimeout(() => this.textContent = '📋 Copy outreach message', 1500); }})
+                    .catch(() => {{ this.textContent = 'Copy failed'; }})
+                " style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; padding:5px 14px;
+                         border-radius:6px; cursor:pointer; font-size:12px; font-family:sans-serif;">
+                    📋 Copy outreach message
+                </button>
+                """, height=38)
+
 
 # ── Load a past search into session state ─────────────────────────────────────
 if "loaded_search" in st.session_state:
