@@ -860,8 +860,12 @@ if run:
     st.caption(f"Skills {w_skills}% · Experience {w_exp}% · Industry {w_industry}% · Trajectory {w_growth}%")
     render_candidates(candidates, "results")
 
-    # CSV Export
+    # ── Exports ───────────────────────────────────────────────────────────────
     st.markdown("---")
+    st.markdown("#### ⬇️ Export")
+    export_cols = st.columns(3)
+
+    # Full results CSV
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
@@ -880,13 +884,59 @@ if run:
             " | ".join(c.get("red_flags", [])),
             c.get("summary"), c.get("outreach_message"),
         ])
+    with export_cols[0]:
+        st.download_button(
+            "📊 Full results (CSV)",
+            data=buf.getvalue(),
+            file_name="candidates_ranked.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
-    st.download_button(
-        "Export Results as CSV",
-        data=buf.getvalue(),
-        file_name="candidates_ranked.csv",
-        mime="text/csv",
-    )
+    # Outreach-only CSV
+    out_csv = io.StringIO()
+    out_writer = csv.writer(out_csv)
+    out_writer.writerow(["Rank", "Name", "Title", "Company", "Score", "Outreach Message"])
+    for rank, c in enumerate(candidates, 1):
+        out_writer.writerow([
+            rank, c.get("name"), c.get("current_title"),
+            c.get("current_company"), c.get("overall_score"),
+            c.get("outreach_message"),
+        ])
+    with export_cols[1]:
+        st.download_button(
+            "💬 Outreach messages (CSV)",
+            data=out_csv.getvalue(),
+            file_name="outreach_messages.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    # Outreach-only TXT
+    today = time.strftime("%Y-%m-%d")
+    jd_title = job_description.strip().splitlines()[0][:60] if job_description.strip() else "Search"
+    txt_lines = [
+        f"AI Recruiting Agent — Outreach Messages",
+        f"Job: {jd_title}",
+        f"Generated: {today}",
+        "=" * 48,
+    ]
+    for rank, c in enumerate(candidates, 1):
+        txt_lines += [
+            "",
+            f"#{rank} — {c.get('name','')} (Score: {c.get('overall_score','')})",
+            f"{c.get('current_title','')} @ {c.get('current_company','')}",
+            "-" * 48,
+            c.get("outreach_message", ""),
+        ]
+    with export_cols[2]:
+        st.download_button(
+            "💬 Outreach messages (TXT)",
+            data="\n".join(txt_lines),
+            file_name="outreach_messages.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
 
 # ── Show loaded past search (if user clicked one in sidebar) ──────────────────
 elif "loaded_candidates" in st.session_state:
