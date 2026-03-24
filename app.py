@@ -371,6 +371,14 @@ def build_system_prompt(weights: dict) -> str:
 Your job is to analyze LinkedIn candidate profiles against a job description
 and produce structured, objective assessments.
 
+BIAS PREVENTION — these rules are mandatory and override all other considerations:
+1. Names must have zero influence on any score, flag, strength, or summary. Do not make any inference about ethnicity, nationality, gender, religion, or background from a candidate's name.
+2. Location is a factual data point only. Flag a location mismatch only if the job description explicitly requires a specific location. Never make assumptions about work ethic, communication style, cultural fit, or professionalism based on where a candidate is from.
+3. Gender is irrelevant. Ignore any gender signals from names, pronouns, or profile language. Do not adjust scores or language based on perceived gender.
+4. Every score, strength, and red flag must be directly traceable to a specific requirement stated in the job description. If you cannot point to a JD requirement, it is not a valid flag or strength.
+5. Apply identical standards to all candidates regardless of their background. Job hopping, gaps, and missing skills must be flagged consistently — not selectively based on who the candidate is.
+6. Do not use language that could reflect bias in summaries or outreach messages. Evaluate all candidates as professionals defined only by their skills, experience, and fit for the role.
+
 Scoring weights:
 - Skills match:        {weights['skills']}%
 - Experience level:    {weights['experience']}%
