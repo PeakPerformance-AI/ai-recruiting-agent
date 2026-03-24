@@ -279,23 +279,14 @@ def extract_urls_from_csv(uploaded_file) -> list:
 
 
 def extract_text_from_pdf(uploaded_file) -> list:
-    """Extract profile text from a PDF containing one or more LinkedIn profiles.
-    Returns a list of text blocks, one per detected profile (or page)."""
-    import pdfplumber, re
+    """Extract text from a PDF. Treats the entire PDF as one candidate profile."""
+    import pdfplumber, io as _io
     try:
-        texts = []
-        with pdfplumber.open(uploaded_file) as pdf:
+        with pdfplumber.open(_io.BytesIO(uploaded_file.read())) as pdf:
             full_text = "\n".join(
                 page.extract_text() or "" for page in pdf.pages
-            )
-        # Try to split on LinkedIn profile boundaries (name + location headers)
-        # If we can't split, treat the whole doc as one profile
-        sections = re.split(r'\n(?=\S.{2,60}\n[A-Z][a-z])', full_text)
-        for section in sections:
-            section = section.strip()
-            if len(section) > 100:  # skip tiny fragments
-                texts.append(section)
-        return texts if texts else [full_text]
+            ).strip()
+        return [full_text] if full_text else []
     except Exception as e:
         st.warning(f"Could not read PDF: {e}")
         return []
