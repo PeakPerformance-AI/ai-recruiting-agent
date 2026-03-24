@@ -471,6 +471,123 @@ def score_color(score: int) -> str:
     return "score-low"
 
 
+def summary_bar(candidates: list):
+    """Show a summary bar with strong / maybe / weak counts."""
+    strong = sum(1 for c in candidates if c.get("overall_score", 0) >= 75)
+    maybe  = sum(1 for c in candidates if 50 <= c.get("overall_score", 0) < 75)
+    weak   = sum(1 for c in candidates if c.get("overall_score", 0) < 50)
+    parts  = []
+    if strong: parts.append(f'<span class="score-pill score-high">✓ {strong} Strong fit{"s" if strong != 1 else ""}</span>')
+    if maybe:  parts.append(f'<span class="score-pill score-medium">~ {maybe} Maybe{"s" if maybe != 1 else ""}</span>')
+    if weak:   parts.append(f'<span class="score-pill score-low">✗ {weak} Weak fit{"s" if weak != 1 else ""}</span>')
+    st.markdown(
+        f'<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">{"".join(parts)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def apply_pin_order(candidates: list, pinned: list, order: list) -> list:
+    """Return candidates sorted by: pinned first (in pin order), then by custom order list."""
+    name_to_c = {c.get("name", ""): c for c in candidates}
+    # Build ordered list: pinned names first, then remaining in order
+    all_names_ordered = pinned + [n for n in order if n not in pinned]
+    # Add any names not in order list at the end
+    for c in candidates:
+        if c.get("name", "") not in all_names_ordered:
+            all_names_ordered.append(c.get("name", ""))
+    return [name_to_c[n] for n in all_names_ordered if n in name_to_c]
+
+
+def render_candidates(candidates: list, state_key: str):
+    """Render candidate cards with pin and reorder controls."""
+    pinned_key = f"{state_key}_pinned"
+    order_key  = f"{state_key}_order"
+
+    if pinned_key not in st.session_state:
+        st.session_state[pinned_key] = []
+    if order_key not in st.session_state:
+        st.session_state[order_key] = [c.get("name", "") for c in candidates]
+
+    # Sync order list if candidates changed
+    current_names = [c.get("name", "") for c in candidates]
+    for n in current_names:
+        if n not in st.session_state[order_key]:
+            st.session_state[order_key].append(n)
+
+    pinned  = st.session_state[pinned_key]
+    ordered = apply_pin_order(candidates, pinned, st.session_state[order_key])
+
+    summary_bar(candidates)
+
+    for rank, c in enumerate(ordered, 1):
+        name      = c.get("name", "Unknown")
+        score     = c.get("overall_score", 0)
+        sc        = score_color(score)
+        dims      = c.get("dimension_scores", {})
+        strengths = c.get("top_strengths", [])
+        flags     = c.get("red_flags", [])
+        is_pinned = name in pinned
+        pin_label = "📌 Pinned" if is_pinned else "📌 Pin"
+        pin_style = "color:#3b82f6; font-weight:700;" if is_pinned else "color:#94a3b8;"
+
+        with st.container():
+            st.markdown(f"""
+<div class="candidate-card">
+  <div style="display:flex; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+    <span class="rank-badge">#{rank}</span>
+    <span style="font-size:18px; font-weight:700; color:#1e293b;">{name}</span>
+    <span style="color:#64748b; font-size:14px;">· {c.get('current_title','')} @ {c.get('current_company','')}</span>
+    <span style="margin-left:auto;" class="score-pill {sc}">{score}/100</span>
+  </div>
+  <div class="divider"></div>
+  <div style="display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin-bottom:14px;">
+    <div><div class="section-label">Skills</div><span class="score-pill {score_color(dims.get('skills_match',0))}">{dims.get('skills_match',0)}</span></div>
+    <div><div class="section-label">Experience</div><span class="score-pill {score_color(dims.get('experience_level',0))}">{dims.get('experience_level',0)}</span></div>
+    <div><div class="section-label">Industry</div><span class="score-pill {score_color(dims.get('industry_fit',0))}">{dims.get('industry_fit',0)}</span></div>
+    <div><div class="section-label">Trajectory</div><span class="score-pill {score_color(dims.get('career_trajectory',0))}">{dims.get('career_trajectory',0)}</span></div>
+  </div>
+  <div class="divider"></div>
+  <p style="color:#334155; font-size:14px; margin:10px 0;">{c.get('summary','')}</p>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px;">
+    <div>
+      <div class="section-label">Strengths</div>
+{"".join(f'<div class="strength-item">+ {s}</div>' for s in strengths) or '<span style="color:#6b7280">None noted</span>'}
+    </div>
+    <div>
+      <div class="section-label">Red Flags</div>
+{"".join(f'<div class="flag-item">- {f}</div>' for f in flags) or '<span style="color:#6b7280">None noted</span>'}
+    </div>
+  </div>
+  <div style="margin-top:14px;">
+    <div class="section-label">Suggested Outreach</div>
+    <div class="outreach-box">{c.get('outreach_message','')}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            # Controls row
+            ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 5])
+            with ctrl1:
+                if st.button(pin_label, key=f"{state_key}_pin_{name}"):
+                    if is_pinned:
+                        st.session_state[pinned_key].remove(name)
+                    else:
+                        st.session_state[pinned_key].insert(0, name)
+                    st.rerun()
+            with ctrl2:
+                cur_order = st.session_state[order_key]
+                idx = cur_order.index(name) if name in cur_order else -1
+                if idx > 0:
+                    if st.button("▲", key=f"{state_key}_up_{name}"):
+                        cur_order[idx], cur_order[idx - 1] = cur_order[idx - 1], cur_order[idx]
+                        st.rerun()
+            with ctrl3:
+                if idx < len(cur_order) - 1 and idx != -1:
+                    if st.button("▼", key=f"{state_key}_down_{name}"):
+                        cur_order[idx], cur_order[idx + 1] = cur_order[idx + 1], cur_order[idx]
+                        st.rerun()
+
+
 # ── Load a past search into session state ─────────────────────────────────────
 if "loaded_search" in st.session_state:
     s = st.session_state.pop("loaded_search")
@@ -725,48 +842,7 @@ if run:
     st.markdown("---")
     st.markdown(f"## 📊 Results — {len(candidates)} Candidate(s) Ranked")
     st.caption(f"Skills {w_skills}% · Experience {w_exp}% · Industry {w_industry}% · Trajectory {w_growth}%")
-
-    for rank, c in enumerate(candidates, 1):
-        score     = c.get("overall_score", 0)
-        sc        = score_color(score)
-        dims      = c.get("dimension_scores", {})
-        strengths = c.get("top_strengths", [])
-        flags     = c.get("red_flags", [])
-
-        with st.container():
-            st.markdown(f"""
-<div class="candidate-card">
-  <div style="display:flex; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-    <span class="rank-badge">#{rank}</span>
-    <span style="font-size:18px; font-weight:700; color:#1e293b;">{c.get('name','Unknown')}</span>
-    <span style="color:#64748b; font-size:14px;">· {c.get('current_title','')} @ {c.get('current_company','')}</span>
-    <span style="margin-left:auto;" class="score-pill {sc}">{score}/100</span>
-  </div>
-  <div class="divider"></div>
-  <div style="display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin-bottom:14px;">
-    <div><div class="section-label">Skills</div><span class="score-pill {score_color(dims.get('skills_match',0))}">{dims.get('skills_match',0)}</span></div>
-    <div><div class="section-label">Experience</div><span class="score-pill {score_color(dims.get('experience_level',0))}">{dims.get('experience_level',0)}</span></div>
-    <div><div class="section-label">Industry</div><span class="score-pill {score_color(dims.get('industry_fit',0))}">{dims.get('industry_fit',0)}</span></div>
-    <div><div class="section-label">Trajectory</div><span class="score-pill {score_color(dims.get('career_trajectory',0))}">{dims.get('career_trajectory',0)}</span></div>
-  </div>
-  <div class="divider"></div>
-  <p style="color:#334155; font-size:14px; margin:10px 0;">{c.get('summary','')}</p>
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px;">
-    <div>
-      <div class="section-label">Strengths</div>
-{"".join(f'<div class="strength-item">+ {s}</div>' for s in strengths) or '<span style="color:#6b7280">None noted</span>'}
-    </div>
-    <div>
-      <div class="section-label">Red Flags</div>
-{"".join(f'<div class="flag-item">- {f}</div>' for f in flags) or '<span style="color:#6b7280">None noted</span>'}
-    </div>
-  </div>
-  <div style="margin-top:14px;">
-    <div class="section-label">Suggested Outreach</div>
-    <div class="outreach-box">{c.get('outreach_message','')}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    render_candidates(candidates, "results")
 
     # CSV Export
     st.markdown("---")
@@ -812,43 +888,4 @@ elif "loaded_candidates" in st.session_state:
         del st.session_state["loaded_candidates"]
         st.rerun()
 
-    for rank, c in enumerate(loaded_candidates, 1):
-        score     = c.get("overall_score", 0)
-        sc        = score_color(score)
-        dims      = c.get("dimension_scores", {})
-        strengths = c.get("top_strengths", [])
-        flags     = c.get("red_flags", [])
-        with st.container():
-            st.markdown(f"""
-<div class="candidate-card">
-  <div style="display:flex; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-    <span class="rank-badge">#{rank}</span>
-    <span style="font-size:18px; font-weight:700; color:#1e293b;">{c.get('name','Unknown')}</span>
-    <span style="color:#64748b; font-size:14px;">· {c.get('current_title','')} @ {c.get('current_company','')}</span>
-    <span style="margin-left:auto;" class="score-pill {sc}">{score}/100</span>
-  </div>
-  <div class="divider"></div>
-  <div style="display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin-bottom:14px;">
-    <div><div class="section-label">Skills</div><span class="score-pill {score_color(dims.get('skills_match',0))}">{dims.get('skills_match',0)}</span></div>
-    <div><div class="section-label">Experience</div><span class="score-pill {score_color(dims.get('experience_level',0))}">{dims.get('experience_level',0)}</span></div>
-    <div><div class="section-label">Industry</div><span class="score-pill {score_color(dims.get('industry_fit',0))}">{dims.get('industry_fit',0)}</span></div>
-    <div><div class="section-label">Trajectory</div><span class="score-pill {score_color(dims.get('career_trajectory',0))}">{dims.get('career_trajectory',0)}</span></div>
-  </div>
-  <div class="divider"></div>
-  <p style="color:#334155; font-size:14px; margin:10px 0;">{c.get('summary','')}</p>
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px;">
-    <div>
-      <div class="section-label">Strengths</div>
-{"".join(f'<div class="strength-item">+ {s}</div>' for s in strengths) or '<span style="color:#6b7280">None noted</span>'}
-    </div>
-    <div>
-      <div class="section-label">Red Flags</div>
-{"".join(f'<div class="flag-item">- {f}</div>' for f in flags) or '<span style="color:#6b7280">None noted</span>'}
-    </div>
-  </div>
-  <div style="margin-top:14px;">
-    <div class="section-label">Suggested Outreach</div>
-    <div class="outreach-box">{c.get('outreach_message','')}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    render_candidates(loaded_candidates, "loaded")
