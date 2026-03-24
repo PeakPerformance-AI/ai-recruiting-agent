@@ -79,6 +79,55 @@ st.markdown("""
 # ── API Keys from Streamlit secrets ──────────────────────────────────────────
 anthropic_key  = st.secrets["ANTHROPIC_KEY"]
 brightdata_key = st.secrets.get("BRIGHTDATA_KEY", "")
+supabase_url   = st.secrets.get("SUPABASE_URL", "")
+supabase_key   = st.secrets.get("SUPABASE_KEY", "")
+
+# ── Supabase client ───────────────────────────────────────────────────────────
+_sb = None
+if supabase_url and supabase_key:
+    try:
+        from supabase import create_client
+        _sb = create_client(supabase_url, supabase_key)
+    except Exception:
+        pass
+
+def save_search(job_description: str, candidates: list, weights: dict):
+    """Save a completed search to Supabase."""
+    if not _sb:
+        return
+    try:
+        # Use first candidate's title as a label, or fall back to first line of JD
+        job_title = next(
+            (c.get("current_title", "") for c in candidates if c.get("current_title")),
+            job_description.strip().splitlines()[0][:80] if job_description.strip() else "Untitled search"
+        )
+        _sb.table("searches").insert({
+            "job_title":       job_title,
+            "job_description": job_description,
+            "candidates":      candidates,
+            "weights":         weights,
+        }).execute()
+    except Exception:
+        pass
+
+def load_searches() -> list:
+    """Return past searches ordered by most recent first."""
+    if not _sb:
+        return []
+    try:
+        resp = _sb.table("searches").select("*").order("created_at", desc=True).limit(30).execute()
+        return resp.data or []
+    except Exception:
+        return []
+
+def delete_search(search_id: str):
+    """Delete a saved search by ID."""
+    if not _sb:
+        return
+    try:
+        _sb.table("searches").delete().eq("id", search_id).execute()
+    except Exception:
+        pass
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -98,6 +147,31 @@ with st.sidebar:
     total_w    = w_skills + w_exp + w_industry + w_growth
     if total_w != 100:
         st.warning(f"Weights sum to {total_w} (should be 100)")
+    st.markdown("---")
+
+    # ── Past Searches ─────────────────────────────────────────────────────────
+    if _sb:
+        st.markdown("### 📂 Past Searches")
+        if st.button("↺ Refresh", key="refresh_searches"):
+            st.rerun()
+        past = load_searches()
+        if past:
+            for s in past:
+                created = s.get("created_at", "")[:10]
+                n = len(s.get("candidates") or [])
+                label = f"{s.get('job_title','Untitled')} · {created} · {n} candidates"
+                col_load, col_del = st.columns([5, 1])
+                with col_load:
+                    if st.button(label, key=f"load_{s['id']}"):
+                        st.session_state["loaded_search"] = s
+                        st.rerun()
+                with col_del:
+                    if st.button("✕", key=f"del_{s['id']}"):
+                        delete_search(s["id"])
+                        st.rerun()
+        else:
+            st.caption("No saved searches yet.")
+
     st.markdown("---")
     st.caption("Built with Claude · Phase 2")
 
@@ -397,6 +471,13 @@ def score_color(score: int) -> str:
     return "score-low"
 
 
+# ── Load a past search into session state ─────────────────────────────────────
+if "loaded_search" in st.session_state:
+    s = st.session_state.pop("loaded_search")
+    st.session_state["jd_textarea"]      = s.get("job_description", "")
+    st.session_state["loaded_candidates"] = s.get("candidates", [])
+    st.session_state["loaded_weights"]    = s.get("weights", {})
+
 # ── Main UI ───────────────────────────────────────────────────────────────────
 st.markdown("# 🎯 AI Recruiting Agent")
 st.markdown("Rank and score candidates against any job description in seconds.")
@@ -637,6 +718,9 @@ if run:
         reverse=True,
     )
 
+    # Auto-save to Supabase
+    save_search(job_description, candidates, weights)
+
     # Results
     st.markdown("---")
     st.markdown(f"## 📊 Results — {len(candidates)} Candidate(s) Ranked")
@@ -711,3 +795,60 @@ if run:
         file_name="candidates_ranked.csv",
         mime="text/csv",
     )
+
+# ── Show loaded past search (if user clicked one in sidebar) ──────────────────
+elif "loaded_candidates" in st.session_state:
+    loaded_candidates = st.session_state["loaded_candidates"]
+    loaded_weights    = st.session_state.get("loaded_weights", {})
+    st.markdown("---")
+    st.markdown(f"## 📂 Loaded Search — {len(loaded_candidates)} Candidate(s)")
+    st.caption(
+        f"Skills {loaded_weights.get('skills', '?')}% · "
+        f"Experience {loaded_weights.get('experience', '?')}% · "
+        f"Industry {loaded_weights.get('industry', '?')}% · "
+        f"Trajectory {loaded_weights.get('growth', '?')}%"
+    )
+    if st.button("✕ Clear loaded search"):
+        del st.session_state["loaded_candidates"]
+        st.rerun()
+
+    for rank, c in enumerate(loaded_candidates, 1):
+        score     = c.get("overall_score", 0)
+        sc        = score_color(score)
+        dims      = c.get("dimension_scores", {})
+        strengths = c.get("top_strengths", [])
+        flags     = c.get("red_flags", [])
+        with st.container():
+            st.markdown(f"""
+<div class="candidate-card">
+  <div style="display:flex; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+    <span class="rank-badge">#{rank}</span>
+    <span style="font-size:18px; font-weight:700; color:#1e293b;">{c.get('name','Unknown')}</span>
+    <span style="color:#64748b; font-size:14px;">· {c.get('current_title','')} @ {c.get('current_company','')}</span>
+    <span style="margin-left:auto;" class="score-pill {sc}">{score}/100</span>
+  </div>
+  <div class="divider"></div>
+  <div style="display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin-bottom:14px;">
+    <div><div class="section-label">Skills</div><span class="score-pill {score_color(dims.get('skills_match',0))}">{dims.get('skills_match',0)}</span></div>
+    <div><div class="section-label">Experience</div><span class="score-pill {score_color(dims.get('experience_level',0))}">{dims.get('experience_level',0)}</span></div>
+    <div><div class="section-label">Industry</div><span class="score-pill {score_color(dims.get('industry_fit',0))}">{dims.get('industry_fit',0)}</span></div>
+    <div><div class="section-label">Trajectory</div><span class="score-pill {score_color(dims.get('career_trajectory',0))}">{dims.get('career_trajectory',0)}</span></div>
+  </div>
+  <div class="divider"></div>
+  <p style="color:#334155; font-size:14px; margin:10px 0;">{c.get('summary','')}</p>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px;">
+    <div>
+      <div class="section-label">Strengths</div>
+{"".join(f'<div class="strength-item">+ {s}</div>' for s in strengths) or '<span style="color:#6b7280">None noted</span>'}
+    </div>
+    <div>
+      <div class="section-label">Red Flags</div>
+{"".join(f'<div class="flag-item">- {f}</div>' for f in flags) or '<span style="color:#6b7280">None noted</span>'}
+    </div>
+  </div>
+  <div style="margin-top:14px;">
+    <div class="section-label">Suggested Outreach</div>
+    <div class="outreach-box">{c.get('outreach_message','')}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
