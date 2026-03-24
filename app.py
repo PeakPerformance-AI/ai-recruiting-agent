@@ -319,7 +319,7 @@ Schema:
         "industry_fit": 0-100,
         "career_trajectory": 0-100
       }},
-      "top_strengths": ["string", "string", "string"],
+      "top_strengths": ["string"],
       "red_flags": ["string"],
       "summary": "2-3 sentence narrative on fit",
       "outreach_message": "Personalized 3-sentence LinkedIn message"
@@ -328,6 +328,8 @@ Schema:
 }}
 
 Be honest. Not every candidate is a strong fit. Red flags are important.
+
+List a number of top_strengths that is equal to or close to the number of red_flags for each candidate. If there are 4 red flags, aim for 4 strengths. If there are no red flags, list 2-3 strengths. Keep the lists balanced.
 
 RED FLAG RULES — always check for these and flag them explicitly if present:
 1. Job hopping: any role lasting less than 12 months at a single company (exclude internships, contract roles, or layoffs if clearly stated)
