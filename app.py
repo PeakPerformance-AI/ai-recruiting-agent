@@ -172,6 +172,13 @@ with st.sidebar:
     total_w = w_skills + w_exp + w_industry + w_growth
     if total_w != 100:
         st.warning(f"Weights sum to {total_w} (should be 100)")
+
+    # Re-score button — appears once results exist
+    if st.session_state.get("_results"):
+        st.markdown("")
+        if st.button("🔄 Re-score with new weights", use_container_width=True, key="sidebar_rescore"):
+            st.session_state["_trigger_rescore"] = True
+
     st.markdown("---")
     st.caption("Built with Claude · Phase 2")
 
@@ -1036,6 +1043,41 @@ elif "loaded_candidates" in st.session_state:
 
 # ── Show live scored results (persists between reruns so Re-score works) ───────
 elif "_results" in st.session_state:
+    # Handle re-score triggered from the sidebar button
+    if st.session_state.pop("_trigger_rescore", False):
+        _r = st.session_state["_results"]
+        _profiles = _r.get("profiles", [])
+        if not _profiles:
+            st.error("Original profiles are no longer available. Please run a fresh search.")
+            st.stop()
+        _new_weights = {
+            "skills":     w_skills,
+            "experience": w_exp,
+            "industry":   w_industry,
+            "growth":     w_growth,
+        }
+        with st.spinner(f"Re-scoring {len(_profiles)} candidate(s) with new weights…"):
+            try:
+                _new_result = score_candidates(_r["job_description"], _profiles, _new_weights)
+            except json.JSONDecodeError:
+                st.error("AI returned malformed JSON. Please try again.")
+                st.stop()
+            except anthropic.AuthenticationError:
+                st.error("Invalid Anthropic API key.")
+                st.stop()
+            except Exception as e:
+                st.error(f"Error during re-scoring: {e}")
+                st.stop()
+        _new_candidates = sorted(
+            _new_result.get("candidates", []),
+            key=lambda c: c.get("overall_score", 0),
+            reverse=True,
+        )
+        save_search(_r["job_description"], _new_candidates, _new_weights)
+        st.session_state["_results"]["candidates"] = _new_candidates
+        st.session_state["_results"]["weights"]    = _new_weights
+        st.rerun()
+
     r          = st.session_state["_results"]
     candidates = r["candidates"]
     jd_r       = r["job_description"]
@@ -1047,41 +1089,5 @@ elif "_results" in st.session_state:
         f"Skills {w_r.get('skills',0)}% · Experience {w_r.get('experience',0)}% · "
         f"Industry {w_r.get('industry',0)}% · Trajectory {w_r.get('growth',0)}%"
     )
-
-    rescore_col, _ = st.columns([1, 4])
-    with rescore_col:
-        if st.button("🔄 Re-score with new weights", key="rescore_btn"):
-            profiles = r.get("profiles", [])
-            if not profiles:
-                st.error("Original profiles are no longer available. Please run a fresh search.")
-            else:
-                new_weights = {
-                    "skills":     w_skills,
-                    "experience": w_exp,
-                    "industry":   w_industry,
-                    "growth":     w_growth,
-                }
-                with st.spinner(f"Re-scoring {len(profiles)} candidate(s) with new weights…"):
-                    try:
-                        new_result = score_candidates(jd_r, profiles, new_weights)
-                    except json.JSONDecodeError:
-                        st.error("AI returned malformed JSON. Please try again.")
-                        st.stop()
-                    except anthropic.AuthenticationError:
-                        st.error("Invalid Anthropic API key.")
-                        st.stop()
-                    except Exception as e:
-                        st.error(f"Error during re-scoring: {e}")
-                        st.stop()
-                new_candidates = sorted(
-                    new_result.get("candidates", []),
-                    key=lambda c: c.get("overall_score", 0),
-                    reverse=True,
-                )
-                save_search(jd_r, new_candidates, new_weights)
-                st.session_state["_results"]["candidates"] = new_candidates
-                st.session_state["_results"]["weights"]    = new_weights
-                st.rerun()
-
     render_exports(candidates, jd_r)
     render_candidates(candidates, "results")
