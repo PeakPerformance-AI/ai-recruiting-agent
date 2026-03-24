@@ -356,18 +356,35 @@ def score_candidates(job_desc: str, profiles: list, weights: dict) -> dict:
 
     response = client.messages.create(
         model="claude-opus-4-5",
-        max_tokens=4096,
+        max_tokens=8192,
         system=build_system_prompt(weights),
         messages=[{"role": "user", "content": user_msg}],
     )
 
     raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
 
-    return json.loads(raw)
+    # Strip markdown code fences if present
+    if "```" in raw:
+        parts = raw.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            if part.startswith("{"):
+                raw = part
+                break
+
+    # Extract JSON object even if there's surrounding text
+    start = raw.find("{")
+    end   = raw.rfind("}") + 1
+    if start != -1 and end > start:
+        raw = raw[start:end]
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        st.expander("Raw Claude response (debug)").code(raw[:3000])
+        raise
 
 
 def score_color(score: int) -> str:
