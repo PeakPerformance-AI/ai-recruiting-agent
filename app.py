@@ -559,22 +559,45 @@ def render_candidates(candidates: list, state_key: str):
     </div>
   </div>
   <div style="margin-top:14px;">
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
-      <div class="section-label" style="margin-bottom:0;">Suggested Outreach</div>
-      <button onclick="
-        var txt = this.closest('.candidate-card').querySelector('.outreach-box').innerText;
-        navigator.clipboard.writeText(txt)
-          .then(() => {{ this.textContent='✓ Copied!'; setTimeout(() => this.textContent='📋 Copy Outreach Message', 1500); }})
-          .catch(() => {{ this.textContent='Failed'; }})
-      " style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; padding:2px 10px;
-               border-radius:6px; cursor:pointer; font-size:11px; font-family:sans-serif; line-height:1.6;">
-        📋 Copy Outreach Message
-      </button>
-    </div>
+    <div class="section-label">Suggested Outreach</div>
     <div class="outreach-box">{c.get('outreach_message','')}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+            # Copy outreach button (components.html embeds text directly — no clipboard permission issues)
+            outreach = c.get("outreach_message", "")
+            if outreach:
+                import streamlit.components.v1 as _components
+                outreach_json = json.dumps(outreach)
+                _components.html(f"""
+                <button id="btn" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;
+                    padding:4px 12px; border-radius:6px; cursor:pointer; font-size:12px;
+                    font-family:sans-serif; margin-top:-6px;">
+                    📋 Copy Outreach Message
+                </button>
+                <script>
+                document.getElementById('btn').addEventListener('click', function() {{
+                    var text = {outreach_json};
+                    var btn = this;
+                    function done() {{
+                        btn.textContent = '✓ Copied!';
+                        setTimeout(function() {{ btn.textContent = '📋 Copy Outreach Message'; }}, 1500);
+                    }}
+                    if (navigator.clipboard && navigator.clipboard.writeText) {{
+                        navigator.clipboard.writeText(text).then(done).catch(function() {{ fallback(text); done(); }});
+                    }} else {{
+                        fallback(text); done();
+                    }}
+                    function fallback(t) {{
+                        var ta = document.createElement('textarea');
+                        ta.value = t; document.body.appendChild(ta);
+                        ta.select(); document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    }}
+                }});
+                </script>
+                """, height=38)
 
             # Controls row
             ctrl1, ctrl2, ctrl3, _ = st.columns([1, 1, 1, 5])
