@@ -328,6 +328,15 @@ Schema:
 }}
 
 Be honest. Not every candidate is a strong fit. Red flags are important.
+
+RED FLAG RULES — always check for these and flag them explicitly if present:
+1. Job hopping: any role lasting less than 12 months at a single company (exclude internships, contract roles, or layoffs if clearly stated)
+2. Employment gaps: any gap between roles exceeding 4 months — note the approximate dates and duration
+3. Missing required skills or certifications: if the job description lists required skills, tools, or certifications that are absent from the profile, flag each one individually
+4. Location mismatch: if the candidate's current location differs from the target location in the job description, flag it — note both locations
+5. Use your own judgment for any other meaningful red flags (e.g. no management experience for a management role, consistent downward career trajectory, etc.)
+
+If data is missing or the profile is incomplete, flag that too rather than assuming the best.
 """
 
 
