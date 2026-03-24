@@ -564,7 +564,7 @@ def render_candidates(candidates: list, state_key: str):
       <button onclick="
         var txt = this.closest('.candidate-card').querySelector('.outreach-box').innerText;
         navigator.clipboard.writeText(txt)
-          .then(() => {{ this.textContent='✓ Copied!'; setTimeout(() => this.textContent='📋 Copy', 1500); }})
+          .then(() => {{ this.textContent='✓ Copied!'; setTimeout(() => this.textContent='📋 Copy Outreach Message', 1500); }})
           .catch(() => {{ this.textContent='Failed'; }})
       " style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; padding:2px 10px;
                border-radius:6px; cursor:pointer; font-size:11px; font-family:sans-serif; line-height:1.6;">
