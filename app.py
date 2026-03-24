@@ -165,11 +165,22 @@ with st.sidebar:
     )
     st.markdown("---")
     st.markdown("### Scoring Weights")
-    w_skills   = st.slider("Skills match",      0, 100, 35)
-    w_exp      = st.slider("Experience level",  0, 100, 30)
-    w_industry = st.slider("Industry fit",      0, 100, 20)
-    w_growth   = st.slider("Career trajectory", 0, 100, 15)
-    total_w    = w_skills + w_exp + w_industry + w_growth
+    w_skills   = st.slider("Skills match",      0, 100, 35, step=5)
+    w_exp      = st.slider("Experience level",  0, 100, 30, step=5)
+    w_industry = st.slider("Industry fit",      0, 100, 20, step=5)
+    w_growth   = st.slider("Career trajectory", 0, 100, 15, step=5)
+    st.markdown("**Custom criteria** *(optional)*")
+    custom_label = st.text_input(
+        "Custom criteria name",
+        placeholder="e.g. Startup experience, Leadership, MBA…",
+    )
+    w_custom = st.slider(
+        custom_label.strip() if custom_label.strip() else "Custom weight",
+        0, 100, 0, step=5,
+        disabled=not custom_label.strip(),
+        help="Type a criteria name above to enable this slider",
+    )
+    total_w = w_skills + w_exp + w_industry + w_growth + w_custom
     if total_w != 100:
         st.warning(f"Weights sum to {total_w} (should be 100)")
     st.markdown("---")
@@ -367,6 +378,20 @@ def extract_text_from_pdf(uploaded_file) -> list:
 
 
 def build_system_prompt(weights: dict) -> str:
+    custom_label  = weights.get("custom_label", "").strip()
+    custom_weight = weights.get("custom", 0)
+    use_custom    = bool(custom_label and custom_weight > 0)
+
+    custom_weight_line = f"- {custom_label}:        {custom_weight}%\n" if use_custom else ""
+    custom_schema_field = f',\n        "custom_score": 0-100' if use_custom else ""
+    custom_note = (
+        f'\n\nCustom criterion — include a "custom_score" field in dimension_scores that rates '
+        f'each candidate specifically on: **{custom_label}**. '
+        f'This carries {custom_weight}% weight in the overall score. '
+        f'Score rigorously based on clear evidence in the profile; if the profile lacks '
+        f'relevant information, score conservatively (30 or below).'
+    ) if use_custom else ""
+
     return f"""You are an expert technical recruiter with 15 years of experience.
 Your job is to analyze LinkedIn candidate profiles against a job description
 and produce structured, objective assessments.
@@ -384,7 +409,7 @@ Scoring weights:
 - Experience level:    {weights['experience']}%
 - Industry fit:        {weights['industry']}%
 - Career trajectory:   {weights['growth']}%
-
+{custom_weight_line}
 Respond with valid JSON only — no prose, no markdown fences.
 
 Schema:
@@ -399,7 +424,7 @@ Schema:
         "skills_match": 0-100,
         "experience_level": 0-100,
         "industry_fit": 0-100,
-        "career_trajectory": 0-100
+        "career_trajectory": 0-100{custom_schema_field}
       }},
       "top_strengths": ["string"],
       "red_flags": ["string"],
@@ -420,7 +445,7 @@ RED FLAG RULES — always check for these and flag them explicitly if present:
 4. Location mismatch: if the candidate's current location differs from the target location in the job description, flag it — note both locations
 5. Use your own judgment for any other meaningful red flags (e.g. no management experience for a management role, consistent downward career trajectory, etc.)
 
-If data is missing or the profile is incomplete, flag that too rather than assuming the best.
+If data is missing or the profile is incomplete, flag that too rather than assuming the best.{custom_note}
 """
 
 
@@ -479,31 +504,45 @@ def score_color(score: int) -> str:
     return "score-low"
 
 
-def render_exports(candidates: list, job_description: str = ""):
+def render_exports(candidates: list, job_description: str = "", custom_label: str = ""):
     """Render the three export download buttons."""
     st.markdown("---")
     st.markdown("#### ⬇️ Export")
     export_cols = st.columns(3)
 
+    # Detect whether any candidate has a custom_score (used for CSV header/rows)
+    has_custom = bool(custom_label) or any(
+        "custom_score" in c.get("dimension_scores", {}) for c in candidates
+    )
+    custom_col_header = custom_label if custom_label else "Custom"
+
     # Full results CSV
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([
+    header = [
         "Rank", "Name", "Title", "Company", "Overall Score",
         "Skills", "Experience", "Industry", "Trajectory",
-        "Strengths", "Red Flags", "Summary", "Outreach",
-    ])
+    ]
+    if has_custom:
+        header.append(custom_col_header)
+    header += ["Strengths", "Red Flags", "Summary", "Outreach"]
+    writer.writerow(header)
     for rank, c in enumerate(candidates, 1):
         d = c.get("dimension_scores", {})
-        writer.writerow([
+        row = [
             rank, c.get("name"), c.get("current_title"), c.get("current_company"),
             c.get("overall_score"),
             d.get("skills_match"), d.get("experience_level"),
             d.get("industry_fit"), d.get("career_trajectory"),
+        ]
+        if has_custom:
+            row.append(d.get("custom_score", ""))
+        row += [
             " | ".join(c.get("top_strengths", [])),
             " | ".join(c.get("red_flags", [])),
             c.get("summary"), c.get("outreach_message"),
-        ])
+        ]
+        writer.writerow(row)
     with export_cols[0]:
         st.download_button(
             "📊 Full results (CSV)",
@@ -586,7 +625,7 @@ def apply_pin_order(candidates: list, pinned: list, order: list) -> list:
     return [name_to_c[n] for n in all_names_ordered if n in name_to_c]
 
 
-def render_candidates(candidates: list, state_key: str):
+def render_candidates(candidates: list, state_key: str, custom_label: str = ""):
     """Render candidate cards with pin and reorder controls."""
     pinned_key = f"{state_key}_pinned"
     order_key  = f"{state_key}_order"
@@ -618,6 +657,16 @@ def render_candidates(candidates: list, state_key: str):
         pin_label = "📌 Pinned" if is_pinned else "📌 Pin"
         pin_style = "color:#3b82f6; font-weight:700;" if is_pinned else "color:#94a3b8;"
 
+        # Build optional custom score cell
+        use_custom_col = bool(custom_label) or "custom_score" in dims
+        custom_col_label = custom_label if custom_label else "Custom"
+        grid_cols  = "repeat(5,1fr)" if use_custom_col else "repeat(4,1fr)"
+        custom_cell = (
+            f'<div><div class="section-label">{custom_col_label[:18]}</div>'
+            f'<span class="score-pill {score_color(dims.get("custom_score", 0))}">'
+            f'{dims.get("custom_score", 0)}</span></div>'
+        ) if use_custom_col else ""
+
         with st.container():
             st.markdown(f"""
 <div class="candidate-card">
@@ -628,11 +677,12 @@ def render_candidates(candidates: list, state_key: str):
     <span style="margin-left:auto;" class="score-pill {sc}">{score}/100</span>
   </div>
   <div class="divider"></div>
-  <div style="display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin-bottom:14px;">
+  <div style="display:grid; grid-template-columns: {grid_cols}; gap:12px; margin-bottom:14px;">
     <div><div class="section-label">Skills</div><span class="score-pill {score_color(dims.get('skills_match',0))}">{dims.get('skills_match',0)}</span></div>
     <div><div class="section-label">Experience</div><span class="score-pill {score_color(dims.get('experience_level',0))}">{dims.get('experience_level',0)}</span></div>
     <div><div class="section-label">Industry</div><span class="score-pill {score_color(dims.get('industry_fit',0))}">{dims.get('industry_fit',0)}</span></div>
     <div><div class="section-label">Trajectory</div><span class="score-pill {score_color(dims.get('career_trajectory',0))}">{dims.get('career_trajectory',0)}</span></div>
+    {custom_cell}
   </div>
   <div class="divider"></div>
   <p style="color:#334155; font-size:14px; margin:10px 0;">{c.get('summary','')}</p>
@@ -924,10 +974,12 @@ if run:
         st.stop()
 
     weights = {
-        "skills": w_skills,
-        "experience": w_exp,
-        "industry": w_industry,
-        "growth": w_growth,
+        "skills":       w_skills,
+        "experience":   w_exp,
+        "industry":     w_industry,
+        "growth":       w_growth,
+        "custom_label": custom_label.strip(),
+        "custom":       w_custom if custom_label.strip() else 0,
     }
 
     profiles_to_score = []
@@ -1006,9 +1058,10 @@ if run:
     # Results
     st.markdown("---")
     st.markdown(f"## 📊 Results — {len(candidates)} Candidate(s) Ranked")
-    st.caption(f"Skills {w_skills}% · Experience {w_exp}% · Industry {w_industry}% · Trajectory {w_growth}%")
-    render_exports(candidates, job_description)
-    render_candidates(candidates, "results")
+    _custom_cap = f" · {custom_label.strip()} {w_custom}%" if custom_label.strip() and w_custom > 0 else ""
+    st.caption(f"Skills {w_skills}% · Experience {w_exp}% · Industry {w_industry}% · Trajectory {w_growth}%{_custom_cap}")
+    render_exports(candidates, job_description, custom_label=custom_label.strip())
+    render_candidates(candidates, "results", custom_label=custom_label.strip())
 
 # ── Show loaded past search (if user clicked one in sidebar) ──────────────────
 elif "loaded_candidates" in st.session_state:
@@ -1016,15 +1069,22 @@ elif "loaded_candidates" in st.session_state:
     loaded_weights    = st.session_state.get("loaded_weights", {})
     st.markdown("---")
     st.markdown(f"## 📂 Loaded Search — {len(loaded_candidates)} Candidate(s)")
+    _lw_custom_label  = loaded_weights.get("custom_label", "")
+    _lw_custom_weight = loaded_weights.get("custom", 0)
+    _lw_custom_cap = (
+        f" · {_lw_custom_label} {_lw_custom_weight}%"
+        if _lw_custom_label and _lw_custom_weight else ""
+    )
     st.caption(
         f"Skills {loaded_weights.get('skills', '?')}% · "
         f"Experience {loaded_weights.get('experience', '?')}% · "
         f"Industry {loaded_weights.get('industry', '?')}% · "
         f"Trajectory {loaded_weights.get('growth', '?')}%"
+        f"{_lw_custom_cap}"
     )
     if st.button("✕ Clear loaded search"):
         del st.session_state["loaded_candidates"]
         st.rerun()
 
-    render_exports(loaded_candidates, st.session_state.get("jd_textarea", ""))
-    render_candidates(loaded_candidates, "loaded")
+    render_exports(loaded_candidates, st.session_state.get("jd_textarea", ""), custom_label=_lw_custom_label)
+    render_candidates(loaded_candidates, "loaded", custom_label=_lw_custom_label)
