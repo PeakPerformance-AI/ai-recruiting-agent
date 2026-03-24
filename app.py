@@ -559,14 +559,25 @@ def render_candidates(candidates: list, state_key: str):
     </div>
   </div>
   <div style="margin-top:14px;">
-    <div class="section-label">Suggested Outreach</div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+      <div class="section-label" style="margin-bottom:0;">Suggested Outreach</div>
+      <button onclick="
+        var txt = this.closest('.candidate-card').querySelector('.outreach-box').innerText;
+        navigator.clipboard.writeText(txt)
+          .then(() => {{ this.textContent='✓ Copied!'; setTimeout(() => this.textContent='📋 Copy', 1500); }})
+          .catch(() => {{ this.textContent='Failed'; }})
+      " style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; padding:2px 10px;
+               border-radius:6px; cursor:pointer; font-size:11px; font-family:sans-serif; line-height:1.6;">
+        📋 Copy
+      </button>
+    </div>
     <div class="outreach-box">{c.get('outreach_message','')}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
             # Controls row
-            ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 5])
+            ctrl1, ctrl2, ctrl3, _ = st.columns([1, 1, 1, 5])
             with ctrl1:
                 if st.button(pin_label, key=f"{state_key}_pin_{name}"):
                     if is_pinned:
@@ -586,22 +597,6 @@ def render_candidates(candidates: list, state_key: str):
                     if st.button("▼", key=f"{state_key}_down_{name}"):
                         cur_order[idx], cur_order[idx + 1] = cur_order[idx + 1], cur_order[idx]
                         st.rerun()
-
-            # Copy outreach button
-            outreach = c.get("outreach_message", "")
-            if outreach:
-                escaped = outreach.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
-                import streamlit.components.v1 as components
-                components.html(f"""
-                <button onclick="
-                    navigator.clipboard.writeText(`{escaped}`)
-                    .then(() => {{ this.textContent = '✓ Copied!'; setTimeout(() => this.textContent = '📋 Copy outreach message', 1500); }})
-                    .catch(() => {{ this.textContent = 'Copy failed'; }})
-                " style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; padding:5px 14px;
-                         border-radius:6px; cursor:pointer; font-size:12px; font-family:sans-serif;">
-                    📋 Copy outreach message
-                </button>
-                """, height=38)
 
 
 # ── Load a past search into session state ─────────────────────────────────────
