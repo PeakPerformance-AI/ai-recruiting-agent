@@ -329,7 +329,7 @@ Schema:
 
 Be honest. Not every candidate is a strong fit. Red flags are important.
 
-List a number of top_strengths that is equal to or close to the number of red_flags for each candidate. If there are 4 red flags, aim for 4 strengths. If there are no red flags, list 2-3 strengths. Keep the lists balanced.
+List a number of top_strengths that is equal to or close to the number of red_flags for each candidate. If there are 4 red flags, aim for 4 strengths. If there are no red flags, list 2-3 strengths. Keep the lists balanced. Cap both lists at 6-7 items maximum — include only the most important ones. Do not pad with minor or obvious points.
 
 RED FLAG RULES — always check for these and flag them explicitly if present:
 1. Job hopping: any role lasting less than 12 months at a single company (exclude internships, contract roles, or layoffs if clearly stated)
