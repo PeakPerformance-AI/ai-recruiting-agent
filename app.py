@@ -132,22 +132,6 @@ def delete_search(search_id: str):
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Configuration")
-    st.markdown("### Input Method")
-    data_source = st.radio(
-        "How will you provide candidates?",
-        ["Paste profile text", "LinkedIn URLs", "Upload File (CSV / XLSX / PDF)"],
-        index=0,
-    )
-    st.markdown("---")
-    st.markdown("### Scoring Weights")
-    w_skills   = st.slider("Skills match",      0, 100, 35)
-    w_exp      = st.slider("Experience level",  0, 100, 30)
-    w_industry = st.slider("Industry fit",      0, 100, 20)
-    w_growth   = st.slider("Career trajectory", 0, 100, 15)
-    total_w    = w_skills + w_exp + w_industry + w_growth
-    if total_w != 100:
-        st.warning(f"Weights sum to {total_w} (should be 100)")
-    st.markdown("---")
 
     # ── Past Searches ─────────────────────────────────────────────────────────
     if _sb:
@@ -171,7 +155,23 @@ with st.sidebar:
                         st.rerun()
         else:
             st.caption("No saved searches yet.")
+        st.markdown("---")
 
+    st.markdown("### Input Method")
+    data_source = st.radio(
+        "How will you provide candidates?",
+        ["Paste profile text", "LinkedIn URLs", "Upload File (CSV / XLSX / PDF)"],
+        index=2,
+    )
+    st.markdown("---")
+    st.markdown("### Scoring Weights")
+    w_skills   = st.slider("Skills match",      0, 100, 35)
+    w_exp      = st.slider("Experience level",  0, 100, 30)
+    w_industry = st.slider("Industry fit",      0, 100, 20)
+    w_growth   = st.slider("Career trajectory", 0, 100, 15)
+    total_w    = w_skills + w_exp + w_industry + w_growth
+    if total_w != 100:
+        st.warning(f"Weights sum to {total_w} (should be 100)")
     st.markdown("---")
     st.caption("Built with Claude · Phase 2")
 
