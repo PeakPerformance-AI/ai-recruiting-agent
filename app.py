@@ -487,10 +487,10 @@ def score_color(score: int) -> str:
 
 
 def render_exports(candidates: list, job_description: str = ""):
-    """Render the three export download buttons."""
+    """Render the four export download buttons."""
     st.markdown("---")
     st.markdown("#### ⬇️ Export")
-    export_cols = st.columns(3)
+    export_cols = st.columns(4)
 
     # Full results CSV
     buf = io.StringIO()
@@ -562,6 +562,72 @@ def render_exports(candidates: list, job_description: str = ""):
             data="\n".join(txt_lines),
             file_name="outreach_messages.txt",
             mime="text/plain",
+            use_container_width=True,
+        )
+
+    # Bullhorn-compatible CSV (two-row header matching their export format)
+    bh = io.StringIO()
+    bh_writer = csv.writer(bh)
+    # Row 1 — human-readable display names (matches Bullhorn's export format)
+    bh_writer.writerow([
+        "ID", "Name", "Email 1", "Ownership", "Title", "Current Company",
+        "Status", "Employment Preference", "Employee Type", "Primary Phone",
+        "Date Available", "Last Note", "Date Added", "Category",
+        "Category Count", "Source", "Comments",
+    ])
+    # Row 2 — Bullhorn API field names (what the importer maps to)
+    bh_writer.writerow([
+        "id", "name", "email", "owner", "occupation", "companyName",
+        "status", "employmentPreference", "employeeType", "phone",
+        "dateAvailable", "dateLastComment", "dateAdded", "categories",
+        "categoriesCount", "source", "comments",
+    ])
+    # Data rows
+    for c in candidates:
+        score = c.get("overall_score", 0)
+        d     = c.get("dimension_scores", {})
+        # Auto-set status: strong fits are Active, everyone else is New Lead
+        status = "Active" if score >= 75 else "New Lead"
+        # Build a clean scorecard for the comments field
+        strengths_txt = " | ".join(c.get("top_strengths", [])) or "None noted"
+        flags_txt     = " | ".join(c.get("red_flags", []))     or "None noted"
+        comments = (
+            f"AI Score: {score}/100  |  "
+            f"Skills: {d.get('skills_match', '')}  |  "
+            f"Experience: {d.get('experience_level', '')}  |  "
+            f"Industry: {d.get('industry_fit', '')}  |  "
+            f"Trajectory: {d.get('career_trajectory', '')}\n"
+            f"Strengths: {strengths_txt}\n"
+            f"Red Flags: {flags_txt}\n"
+            f"Summary: {c.get('summary', '')}\n"
+            f"Outreach: {c.get('outreach_message', '')}\n"
+            f"Scored by AI Recruiting Agent on {today}"
+        )
+        bh_writer.writerow([
+            "",                          # id — blank for new candidates
+            c.get("name", ""),           # name
+            "",                          # email — not available from profiles
+            "",                          # owner — recruiter assigns in Bullhorn
+            c.get("current_title", ""),  # occupation
+            c.get("current_company", ""), # companyName
+            status,                      # status
+            "",                          # employmentPreference
+            "",                          # employeeType
+            "",                          # phone
+            "",                          # dateAvailable
+            "",                          # dateLastComment
+            today,                       # dateAdded
+            "",                          # categories
+            "",                          # categoriesCount
+            "AI Recruiting Agent",       # source
+            comments,                    # comments (full AI scorecard)
+        ])
+    with export_cols[3]:
+        st.download_button(
+            "🔵 Bullhorn (CSV)",
+            data=bh.getvalue(),
+            file_name="bullhorn_import.csv",
+            mime="text/csv",
             use_container_width=True,
         )
 
