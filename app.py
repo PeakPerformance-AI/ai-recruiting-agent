@@ -588,21 +588,7 @@ def render_exports(candidates: list, job_description: str = ""):
         d     = c.get("dimension_scores", {})
         # Auto-set status: strong fits are Active, everyone else is New Lead
         status = "Active" if score >= 75 else "New Lead"
-        # Build a clean scorecard for the comments field
-        strengths_txt = " | ".join(c.get("top_strengths", [])) or "None noted"
-        flags_txt     = " | ".join(c.get("red_flags", []))     or "None noted"
-        comments = (
-            f"AI Score: {score}/100  |  "
-            f"Skills: {d.get('skills_match', '')}  |  "
-            f"Experience: {d.get('experience_level', '')}  |  "
-            f"Industry: {d.get('industry_fit', '')}  |  "
-            f"Trajectory: {d.get('career_trajectory', '')}\n"
-            f"Strengths: {strengths_txt}\n"
-            f"Red Flags: {flags_txt}\n"
-            f"Summary: {c.get('summary', '')}\n"
-            f"Outreach: {c.get('outreach_message', '')}\n"
-            f"Scored by AI Recruiting Agent on {today}"
-        )
+        comments = f"AI Score: {score}/100 (Scored by AI Recruiting Agent on {today})"
         bh_writer.writerow([
             "",                          # id — blank for new candidates
             c.get("name", ""),           # name
