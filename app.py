@@ -373,6 +373,18 @@ def extract_text_from_pdf(uploaded_file) -> list:
         return []
 
 
+def extract_text_from_docx(uploaded_file) -> list:
+    """Extract text from a DOCX. Treats the entire document as one candidate profile."""
+    import docx as _docx, io as _io
+    try:
+        doc = _docx.Document(_io.BytesIO(uploaded_file.read()))
+        full_text = "\n".join(para.text for para in doc.paragraphs).strip()
+        return [full_text] if full_text else []
+    except Exception as e:
+        st.warning(f"Could not read DOCX: {e}")
+        return []
+
+
 def build_system_prompt(weights: dict) -> str:
     return f"""You are an expert technical recruiter with 15 years of experience.
 Your job is to analyze LinkedIn candidate profiles against a job description
@@ -911,12 +923,12 @@ with col_profiles:
             ]
             st.caption(f"{len(profiles_input)} URL(s) ready")
 
-    # Mode 3: File Upload (CSV, XLSX, PDF, ZIP)
+    # Mode 3: File Upload (CSV, XLSX, PDF, DOCX, ZIP)
     else:
-        st.caption("Upload LinkedIn Recruiter exports (CSV/XLSX), profile PDFs, or a ZIP of any of the above. Select multiple files at once.")
+        st.caption("Upload LinkedIn Recruiter exports (CSV/XLSX), profile PDFs or DOCXs, or a ZIP of any of the above. Select multiple files at once.")
         uploaded_files = st.file_uploader(
             "Upload files",
-            type=["csv", "xlsx", "xls", "pdf", "zip"],
+            type=["csv", "xlsx", "xls", "pdf", "docx", "zip"],
             accept_multiple_files=True,
         )
         if uploaded_files:
@@ -929,7 +941,7 @@ with col_profiles:
                         with zipfile.ZipFile(_io.BytesIO(uf.read())) as zf:
                             for zip_name in zf.namelist():
                                 lower = zip_name.lower()
-                                if any(lower.endswith(ext) for ext in (".pdf", ".csv", ".xlsx", ".xls")):
+                                if any(lower.endswith(ext) for ext in (".pdf", ".docx", ".csv", ".xlsx", ".xls")):
                                     data = zf.read(zip_name)
                                     fake_file = _io.BytesIO(data)
                                     fake_file.name = zip_name
@@ -946,17 +958,23 @@ with col_profiles:
                     texts = extract_text_from_pdf(f)
                     for i, t in enumerate(texts):
                         profiles_input.append({"text": t, "label": f"{f.name} — profile {i+1}", "from_pdf": True})
+                elif fname.endswith(".docx"):
+                    texts = extract_text_from_docx(f)
+                    for i, t in enumerate(texts):
+                        profiles_input.append({"text": t, "label": f"{f.name} — profile {i+1}", "from_docx": True})
                 else:
                     urls = extract_urls_from_csv(f)
                     for u in urls:
                         profiles_input.append({"url": u, "label": u})
 
             # Summary
-            pdf_count = sum(1 for p in profiles_input if p.get("from_pdf"))
-            url_count  = len(profiles_input) - pdf_count
+            pdf_count  = sum(1 for p in profiles_input if p.get("from_pdf"))
+            docx_count = sum(1 for p in profiles_input if p.get("from_docx"))
+            url_count  = len(profiles_input) - pdf_count - docx_count
             if profiles_input:
                 parts = []
-                if pdf_count: parts.append(f"{pdf_count} PDF profile(s)")
+                if pdf_count:  parts.append(f"{pdf_count} PDF profile(s)")
+                if docx_count: parts.append(f"{docx_count} DOCX profile(s)")
                 if url_count:  parts.append(f"{url_count} URL(s) for BrightData")
                 st.success(f"Ready: {', '.join(parts)}")
                 with st.expander("Preview"):
@@ -964,12 +982,15 @@ with col_profiles:
                         if p.get("from_pdf"):
                             st.caption(f"PDF: {p['label']}")
                             st.text(p["text"][:200] + "…")
+                        elif p.get("from_docx"):
+                            st.caption(f"DOCX: {p['label']}")
+                            st.text(p["text"][:200] + "…")
                         else:
                             st.caption(f"URL: {p['label']}")
                     if len(profiles_input) > 10:
                         st.caption(f"...and {len(profiles_input)-10} more")
             else:
-                st.error("No profiles found. Check that your files are LinkedIn Recruiter exports or profile PDFs.")
+                st.error("No profiles found. Check that your files are LinkedIn Recruiter exports or profile PDFs/DOCXs.")
 
 # ── Run button ────────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -1001,14 +1022,14 @@ if run:
     # File upload / URL modes
     else:
         if not profiles_input:
-            st.error("Please provide LinkedIn URLs, upload a CSV/XLSX, or upload a PDF.")
+            st.error("Please provide LinkedIn URLs, upload a CSV/XLSX, or upload a PDF/DOCX.")
             st.stop()
 
-        # PDF profiles go straight to scoring; URLs need BrightData
-        pdf_profiles = [p for p in profiles_input if p.get("from_pdf")]
-        url_profiles = [p for p in profiles_input if not p.get("from_pdf")]
+        # PDF and DOCX profiles go straight to scoring; URLs need BrightData
+        doc_profiles = [p for p in profiles_input if p.get("from_pdf") or p.get("from_docx")]
+        url_profiles = [p for p in profiles_input if not p.get("from_pdf") and not p.get("from_docx")]
 
-        profiles_to_score.extend(pdf_profiles)
+        profiles_to_score.extend(doc_profiles)
 
         if url_profiles:
             if not brightdata_key:
