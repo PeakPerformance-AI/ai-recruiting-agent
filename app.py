@@ -164,6 +164,16 @@ with st.sidebar:
         index=2,
     )
     st.markdown("---")
+    st.markdown("### ⚡ Scoring Model")
+    model_choice = st.radio(
+        "Scoring model",
+        ["🎯 Thorough (Opus)", "⚡ Fast (Haiku)"],
+        index=0,
+        label_visibility="collapsed",
+    )
+    _scoring_model = "claude-opus-4-5" if "Opus" in model_choice else "claude-haiku-3-5"
+    st.caption("Opus: more nuanced · ~45s/batch   |   Haiku: faster · ~10s/batch")
+    st.markdown("---")
     st.markdown("### Scoring Weights")
     w_skills   = st.slider("Skills match",      0, 100, 35, step=5)
     w_exp      = st.slider("Experience level",  0, 100, 30, step=5)
@@ -456,8 +466,9 @@ If data is missing or the profile is incomplete, flag that too rather than assum
 """
 
 
-def score_candidates(job_desc: str, profiles: list, weights: dict) -> dict:
-    """Call Claude to score all candidates."""
+def score_candidates(job_desc: str, profiles: list, weights: dict,
+                     model: str = "claude-opus-4-5") -> dict:
+    """Call Claude to score a batch of candidates."""
     client = anthropic.Anthropic(api_key=anthropic_key)
 
     profiles_block = ""
@@ -471,7 +482,7 @@ def score_candidates(job_desc: str, profiles: list, weights: dict) -> dict:
     )
 
     response = client.messages.create(
-        model="claude-opus-4-5",
+        model=model,
         max_tokens=8192,
         system=build_system_prompt(weights),
         messages=[{"role": "user", "content": user_msg}],
@@ -501,6 +512,41 @@ def score_candidates(job_desc: str, profiles: list, weights: dict) -> dict:
     except json.JSONDecodeError:
         st.expander("Raw Claude response (debug)").code(raw[:3000])
         raise
+
+
+def score_in_batches(job_desc: str, profiles: list, weights: dict,
+                     model: str, batch_size: int = 10) -> list:
+    """Score candidates in batches of batch_size, showing a progress bar.
+    Returns a combined flat list of candidate dicts."""
+    batches = [profiles[i:i + batch_size] for i in range(0, len(profiles), batch_size)]
+    n_batches = len(batches)
+    total     = len(profiles)
+    all_candidates = []
+
+    progress = st.progress(0.0, text=f"Scoring batch 1 of {n_batches}…")
+
+    for i, batch in enumerate(batches):
+        start_n = i * batch_size + 1
+        end_n   = min((i + 1) * batch_size, total)
+        progress.progress(
+            i / n_batches,
+            text=f"Scoring batch {i+1} of {n_batches}  (candidates {start_n}–{end_n} of {total})…",
+        )
+        try:
+            result = score_candidates(job_desc, batch, weights, model)
+        except json.JSONDecodeError:
+            st.error(f"AI returned malformed JSON on batch {i+1}. Please try again.")
+            st.stop()
+        except anthropic.AuthenticationError:
+            st.error("Invalid Anthropic API key.")
+            st.stop()
+        except Exception as e:
+            st.error(f"Error scoring batch {i+1}: {e}")
+            st.stop()
+        all_candidates.extend(result.get("candidates", []))
+
+    progress.progress(1.0, text=f"Done — {len(all_candidates)} candidates scored.")
+    return all_candidates
 
 
 def score_color(score: int) -> str:
@@ -1073,22 +1119,9 @@ if run:
                 )
                 st.stop()
 
-    # Score
-    with st.spinner(f"Analyzing {len(profiles_to_score)} candidate(s)…"):
-        try:
-            result = score_candidates(job_description, profiles_to_score, weights)
-        except json.JSONDecodeError:
-            st.error("AI returned malformed JSON. Please try again.")
-            st.stop()
-        except anthropic.AuthenticationError:
-            st.error("Invalid Anthropic API key.")
-            st.stop()
-        except Exception as e:
-            st.error(f"Error during scoring: {e}")
-            st.stop()
-
+    # Score (batched)
     candidates = sorted(
-        result.get("candidates", []),
+        score_in_batches(job_description, profiles_to_score, weights, _scoring_model),
         key=lambda c: c.get("overall_score", 0),
         reverse=True,
     )
@@ -1098,10 +1131,11 @@ if run:
 
     # Persist for display + re-scoring (cleared when a new run starts)
     st.session_state["_results"] = {
-        "candidates":    candidates,
+        "candidates":      candidates,
         "job_description": job_description,
-        "weights":       weights,
-        "profiles":      profiles_to_score,
+        "weights":         weights,
+        "profiles":        profiles_to_score,
+        "model":           _scoring_model,
     }
     # A fresh run supersedes any loaded past search
     st.session_state.pop("loaded_candidates", None)
@@ -1142,20 +1176,8 @@ elif "_results" in st.session_state:
             "industry":   w_industry,
             "growth":     w_growth,
         }
-        with st.spinner(f"Re-scoring {len(_profiles)} candidate(s) with new weights…"):
-            try:
-                _new_result = score_candidates(_r["job_description"], _profiles, _new_weights)
-            except json.JSONDecodeError:
-                st.error("AI returned malformed JSON. Please try again.")
-                st.stop()
-            except anthropic.AuthenticationError:
-                st.error("Invalid Anthropic API key.")
-                st.stop()
-            except Exception as e:
-                st.error(f"Error during re-scoring: {e}")
-                st.stop()
         _new_candidates = sorted(
-            _new_result.get("candidates", []),
+            score_in_batches(_r["job_description"], _profiles, _new_weights, _scoring_model),
             key=lambda c: c.get("overall_score", 0),
             reverse=True,
         )
@@ -1169,11 +1191,14 @@ elif "_results" in st.session_state:
     jd_r       = r["job_description"]
     w_r        = r["weights"]
 
+    _model_label = "Opus" if "opus" in r.get("model", "") else "Haiku"
+    _n_batches   = max(1, -(-len(r.get("profiles", candidates)) // 10))  # ceiling div
     st.markdown("---")
     st.markdown(f"## 📊 Results — {len(candidates)} Candidate(s) Ranked")
     st.caption(
         f"Skills {w_r.get('skills',0)}% · Experience {w_r.get('experience',0)}% · "
-        f"Industry {w_r.get('industry',0)}% · Trajectory {w_r.get('growth',0)}%"
+        f"Industry {w_r.get('industry',0)}% · Trajectory {w_r.get('growth',0)}%  ·  "
+        f"Model: {_model_label}  ·  {_n_batches} batch{'es' if _n_batches != 1 else ''}"
     )
     render_exports(candidates, jd_r)
     render_candidates(candidates, "results")
