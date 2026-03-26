@@ -374,11 +374,24 @@ def extract_text_from_pdf(uploaded_file) -> list:
 
 
 def extract_text_from_docx(uploaded_file) -> list:
-    """Extract text from a DOCX. Treats the entire document as one candidate profile."""
+    """Extract text from a DOCX. Treats the entire document as one candidate profile.
+    Reads both paragraphs and table cells, since many resume templates use table layouts."""
     import docx as _docx, io as _io
     try:
         doc = _docx.Document(_io.BytesIO(uploaded_file.read()))
-        full_text = "\n".join(para.text for para in doc.paragraphs).strip()
+        parts = []
+        # Top-level paragraphs
+        for para in doc.paragraphs:
+            if para.text.strip():
+                parts.append(para.text)
+        # Table cells — common in modern resume templates
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for para in cell.paragraphs:
+                        if para.text.strip():
+                            parts.append(para.text)
+        full_text = "\n".join(parts).strip()
         return [full_text] if full_text else []
     except Exception as e:
         st.warning(f"Could not read DOCX: {e}")
